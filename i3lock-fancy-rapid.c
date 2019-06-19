@@ -8,6 +8,8 @@
 #include <omp.h>
 #include "lodepng/lodepng.h"
 
+#define THR 128
+
 void box_blur_h(unsigned char *dest, unsigned char *src, int height, int width,
                 int radius)
 {
@@ -105,33 +107,40 @@ int main(int argc, char *argv[])
     XGetWindowAttributes(display, root, &gwa);
     int height = gwa.height;
     int width = gwa.width;
-    unsigned char *preblur = malloc(height * width * 3);
+    unsigned char *grayscale = malloc(height * width);
     XImage *image = XGetImage(display, root, 0, 0, width, height, AllPlanes,
                               ZPixmap);
+
+    // Conversion to greyscale
+    size_t index = 0;
     for (int i = 0; i < height; ++i) {
-        int iwidth = i * width;
         for (int j = 0; j < width; ++j) {
-            int index = (iwidth + j) * 3;
             unsigned long pixel = XGetPixel(image, j, i);
-            preblur[index] = (pixel & image->red_mask) >> 16;
-            preblur[index + 1] = (pixel & image->green_mask) >> 8;
-            preblur[index + 2] = pixel & image->blue_mask;
+            unsigned char red = (pixel & image->red_mask) >> 18;
+            unsigned char green= (pixel & image->green_mask) >> 9;
+            unsigned char blue = (pixel & image->blue_mask) >> 1;
+            /* grayscale[index] = (red>>2)+ (green>>1) + (blue>>2); */
+            grayscale[index] = red + green + blue;
+            if(grayscale[index] > THR ) grayscale[index] = 255;
+            else grayscale[index] = 0;
+            index++;
         }
     }
+
     XDestroyImage(image);
     XDestroyWindow(display, root);
     XCloseDisplay(display);
-    unsigned char *postblur = malloc(height * width * 3);
-    box_blur(postblur, preblur, height, width, atoi(argv[1]), atoi(argv[2]));
-    free(preblur);
+    //unsigned char *postblur = malloc(height * width * 3);
+    /* box_blur(postblur, preblur, height, width, atoi(argv[1]), atoi(argv[2])); */
+    /* free(preblur); */
     LodePNGState state;
     lodepng_state_init(&state);
-    state.info_raw.colortype = LCT_RGB;
+    state.info_raw.colortype = LCT_GREY;
     state.encoder.zlibsettings.btype = 0;
     unsigned char *data;
     size_t data_len;
-    lodepng_encode(&data, &data_len, postblur, width, height, &state);
-    free(postblur);
+    lodepng_encode(&data, &data_len, grayscale, width, height, &state);
+    //free(postblur);
     lodepng_state_cleanup(&state);
     char filename[] = "/tmp/tmp.XXXXXX.png";
     int fd = mkstemps(filename, 4);
